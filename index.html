@@ -727,20 +727,40 @@
   // --- Main Game Loop ---
   let lastTime = 0;
 
+  let errorMsg = null;
   function gameLoop(timestamp) {
-    if (gameOver) {
+    try {
+      if (gameOver) {
+        draw();
+        requestAnimationFrame(gameLoop);
+        return;
+      }
+
+      const dt = Math.min(timestamp - lastTime, 50); // cap delta time
+      lastTime = timestamp;
+
+      if (!paused) {
+        update(dt);
+      }
       draw();
-      requestAnimationFrame(gameLoop);
-      return;
+    } catch(e) {
+      errorMsg = e.message + ' | ' + (e.stack || '').split('\n').slice(0,3).join(' // ');
+      console.error('Game crashed:', e);
+      // Try to keep rendering the error
     }
-
-    const dt = Math.min(timestamp - lastTime, 50); // cap delta time
-    lastTime = timestamp;
-
-    if (!paused) {
-      update(dt);
+    // Show error on canvas
+    if (errorMsg) {
+      ctx.fillStyle = 'rgba(0,0,0,0.8)';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = '#f44';
+      ctx.font = 'bold 16px "Courier New"';
+      ctx.textAlign = 'center';
+      const lines = errorMsg.split(' | ');
+      for (let i = 0; i < lines.length; i++) {
+        ctx.fillText(lines[i].substring(0,50), canvas.width/2, canvas.height/2 - 20 + i * 22);
+      }
+      ctx.textAlign = 'start';
     }
-    draw();
     requestAnimationFrame(gameLoop);
   }
 
