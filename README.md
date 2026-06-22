@@ -2,6 +2,10 @@
 
 一个用纯 HTML5 Canvas 和 JavaScript 实现的经典坦克大战游戏。
 
+## 🌐 在线游玩
+
+👉 **[点击这里立即开始游戏](https://sdnzau-svg.github.io/tank-battle/)**
+
 ## 🕹️ 玩法介绍
 
 - **目标**: 消灭所有敌方坦克，保护你的基地（鹰标）
