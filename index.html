@@ -178,7 +178,7 @@
       [0,0,1,1,0,0,1,1,0,0,0,0,0,0,0,0,1,1,0,0,1,1,0,0,0,0],
       [0,0,1,1,0,0,1,1,0,0,1,1,0,0,1,1,0,0,1,1,0,0,1,1,0,0],
       [0,0,0,0,0,0,0,0,0,0,1,1,0,0,1,1,0,0,0,0,0,0,0,0,0,0],
-      [0,0,0,0,0,0,0,0,0,0,0,0,3,3,0,0,0,0,0,0,0,0,0,0,0,0],
+      [0,0,0,0,0,0,0,0,0,0,0,1,3,3,1,0,0,0,0,0,0,0,0,0,0,0],
     ],
     // Level 2
     [
@@ -200,8 +200,8 @@
       [0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0],
       [0,0,1,1,0,0,0,0,0,0,1,1,0,0,1,1,0,0,0,0,0,0,1,1,0,0],
       [0,0,1,1,0,0,1,1,0,0,1,0,0,0,0,1,0,0,1,1,0,0,1,1,0,0],
-      [0,0,0,0,2,0,0,0,0,2,0,0,0,0,0,0,2,0,0,0,0,2,0,0,0,0],
-      [0,0,0,0,0,0,0,0,0,0,0,0,3,3,0,0,0,0,0,0,0,0,0,0,0,0],
+      [0,0,0,0,2,0,0,0,0,2,0,1,0,0,1,0,2,0,0,0,0,2,0,0,0,0],
+      [0,0,0,0,0,0,0,0,0,0,0,2,3,3,2,0,0,0,0,0,0,0,0,0,0,0],
     ],
     // Level 3
     [
@@ -222,9 +222,9 @@
       [2,0,1,1,0,0,4,4,0,0,0,1,0,0,1,0,0,0,4,4,0,0,1,1,0,2],
       [0,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,0,0],
       [0,0,0,0,0,0,0,0,2,0,0,1,1,1,1,0,0,2,0,0,0,0,0,0,0,0],
-      [0,0,0,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,0,0,0,0],
-      [0,0,0,0,1,1,0,2,0,0,0,0,0,0,0,0,0,0,2,0,1,1,0,0,0,0],
-      [0,0,0,0,0,0,0,0,0,0,0,0,3,3,0,0,0,0,0,0,0,0,0,0,0,0],
+      [0,0,0,0,1,1,0,0,0,0,0,1,0,0,1,0,0,0,0,0,1,1,0,0,0,0],
+      [0,0,0,0,1,1,0,2,0,0,0,1,0,0,1,0,0,0,2,0,1,1,0,0,0,0],
+      [0,0,0,0,0,0,0,0,0,0,0,2,3,3,2,0,0,0,0,0,0,0,0,0,0,0],
     ],
   ];
 
@@ -564,15 +564,27 @@
 
   // --- Spawn enemies ---
   function spawnEnemy() {
+    // Spawn enemies only at the TOP of the map, far from the base (bottom center)
     const spawnPoints = [
-      { col: 0, row: 0 }, { col: 12, row: 0 }, { col: 24, row: 0 },
-      { col: 0, row: 19 }, { col: 12, row: 19 }, { col: 24, row: 19 },
+      { col: 0, row: 0 }, { col: 4, row: 0 }, { col: 8, row: 0 },
+      { col: 13, row: 0 }, { col: 17, row: 0 }, { col: 21, row: 0 }, { col: 24, row: 0 },
+      { col: 2, row: 2 }, { col: 22, row: 2 },
     ];
-    // Filter to non-colliding spawn points
+    // Base center position (base is always at row 19, cols 12-13)
+    const baseCX = 12.5 * TILE_SIZE;
+    const baseCY = 19.5 * TILE_SIZE;
+    const MIN_SPAWN_DIST = 8 * TILE_SIZE; // enemies must spawn at least 8 tiles from base
+
+    // Filter to valid spawn points
     const valid = spawnPoints.filter(sp => {
       const p = tileToPx(sp.col, sp.row);
-      const testTank = new Tank(p.x + 2, p.y + 2, DIR.DOWN, '#f00');
+      const cx = p.x + TILE_SIZE / 2;
+      const cy = p.y + TILE_SIZE / 2;
+      // Distance check from base
+      const dist = Math.sqrt((cx - baseCX) ** 2 + (cy - baseCY) ** 2);
+      if (dist < MIN_SPAWN_DIST) return false;
       // Check if spawn overlaps with existing tanks
+      const testTank = new Tank(p.x + 2, p.y + 2, DIR.DOWN, '#f00');
       if (player && player.alive && testTank.collidesWith(player)) return false;
       for (const e of enemies) {
         if (e.alive && testTank.collidesWith(e)) return false;
@@ -598,7 +610,7 @@
       // Random direction change
       const dirs = [DIR.UP, DIR.RIGHT, DIR.DOWN, DIR.LEFT];
       // Bias toward player sometimes
-      if (player && player.alive && Math.random() < 0.3) {
+      if (player && player.alive && Math.random() < 0.2) {
         const dx = player.getCenter().x - enemy.getCenter().x;
         const dy = player.getCenter().y - enemy.getCenter().y;
         if (Math.abs(dx) > Math.abs(dy)) {
@@ -637,7 +649,7 @@
     powerUps = [];
     baseAlive = true;
     spawnQueue = [];
-    enemyCount = 5 + lvl * 2;
+    enemyCount = 3 + lvl; // Level 1:3, Level 2:4, Level 3:5
     spawnTimer = 0;
 
     // Spawn player at bottom center
@@ -649,7 +661,7 @@
     for (let i = 0; i < enemyCount; i++) {
       spawnQueue.push(i * 1000); // staggered spawn
     }
-    spawnTimer = 500; // initial delay
+    spawnTimer = 2000; // initial delay - give player time to position
 
     updateUI();
     showLevelScreen(lvl + 1);
