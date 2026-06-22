@@ -125,6 +125,8 @@
     <div>🎯 第 <span id="level">1</span> 关</div>
     <div>❤️ <span id="lives">3</span></div>
     <div>💥 <span id="enemies">5</span></div>
+    <div>🔫 <span id="laser-cd">就绪</span></div>
+    <div>💣 <span id="cannon-cd">就绪</span></div>
   </div>
   <div id="game-over-screen">
     <h1 id="result-title">游戏结束</h1>
@@ -133,7 +135,7 @@
   </div>
   <div id="level-screen"></div>
   <div id="controls-info">
-    🎮 WASD/方向键 移动 | 空格键 射击 | P 暂停
+    🎮 WASD/↑↓←→ 移动 | 空格 射击 | J 激光🔫 | K 大炮💣 | P 暂停
   </div>
 </div>
 
@@ -244,6 +246,14 @@
   let spawnTimer = 0;
   let powerUps = [];
   let baseAlive = true;
+
+  // --- Skills ---
+  const LASER_COOLDOWN = 3000;   // 激光冷却 3 秒
+  const CANNON_COOLDOWN = 5000;  // 大炮冷却 5 秒
+  let laserCooldown = 0;
+  let cannonCooldown = 0;
+  let laserBeams = [];   // 激光束特效
+  let cannonBalls = [];  // 大炮弹
 
   // --- Input ---
   const keys = {};
@@ -539,6 +549,213 @@
     }
   }
 
+  // --- Laser Beam ---
+  class LaserBeam {
+    constructor(x, y, dir) {
+      this.x = x;
+      this.y = y;
+      this.dir = dir;
+      this.life = 8;       // frames to display
+      this.alive = true;
+      this.trace = [];     // {x, y, hitSteel: bool}
+      this.castTrace();
+    }
+
+    castTrace() {
+      const dirMap = { [DIR.UP]: [0, -1], [DIR.DOWN]: [0, 1], [DIR.LEFT]: [-1, 0], [DIR.RIGHT]: [1, 0] };
+      const [dx, dy] = dirMap[this.dir];
+      let cx = this.x;
+      let cy = this.y;
+      const step = TILE_SIZE / 2;
+      const maxSteps = 50;
+
+      for (let i = 0; i < maxSteps; i++) {
+        cx += dx * step;
+        cy += dy * step;
+        const tx = Math.floor(cx / TILE_SIZE);
+        const ty = Math.floor(cy / TILE_SIZE);
+        let hitSteel = false;
+
+        if (tx < 0 || tx >= COLS || ty < 0 || ty >= ROWS) {
+          this.trace.push({ x: cx, y: cy, hitSteel: true });
+          break;
+        }
+
+        const tile = map[ty][tx];
+        if (tile === STEEL || tile === BASE) {
+          hitSteel = true;
+        } else if (tile === BRICK) {
+          map[ty][tx] = EMPTY;
+          spawnParticles(tx * TILE_SIZE + TILE_SIZE / 2, ty * TILE_SIZE + TILE_SIZE / 2, '#c84', 4);
+        }
+
+        // Check enemy hits
+        for (const enemy of enemies) {
+          if (enemy.alive) {
+            const eb = enemy.getBounds();
+            if (cx >= eb.left && cx <= eb.right && cy >= eb.top && cy <= eb.bottom) {
+              const killed = enemy.hit();
+              spawnParticles(cx, cy, '#f80', 5);
+              if (killed) {
+                spawnParticles(enemy.getCenter().x, enemy.getCenter().y, '#f44', 8);
+                score += 100;
+              }
+            }
+          }
+        }
+
+        this.trace.push({ x: cx, y: cy, hitSteel });
+        if (hitSteel) break;
+      }
+    }
+
+    draw(ctx) {
+      if (!this.alive || this.life <= 0) return;
+      const alpha = this.life / 8;
+      // Draw glow
+      ctx.strokeStyle = `rgba(255,80,80,${alpha * 0.4})`;
+      ctx.lineWidth = 6;
+      ctx.beginPath();
+      ctx.moveTo(this.x, this.y);
+      for (const p of this.trace) {
+        ctx.lineTo(p.x, p.y);
+      }
+      ctx.stroke();
+      // Draw core
+      ctx.strokeStyle = `rgba(255,200,200,${alpha})`;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(this.x, this.y);
+      for (const p of this.trace) {
+        ctx.lineTo(p.x, p.y);
+      }
+      ctx.stroke();
+    }
+
+    update() {
+      this.life--;
+      if (this.life <= 0) this.alive = false;
+    }
+  }
+
+  // --- CannonBall ---
+  class CannonBall {
+    constructor(x, y, dir) {
+      this.x = x;
+      this.y = y;
+      this.dir = dir;
+      this.speed = 3.5;
+      this.size = 8;
+      this.alive = true;
+    }
+
+    update() {
+      const dirs = { [DIR.UP]: [0, -1], [DIR.DOWN]: [0, 1], [DIR.LEFT]: [-1, 0], [DIR.RIGHT]: [1, 0] };
+      const [dx, dy] = dirs[this.dir];
+      this.x += dx * this.speed;
+      this.y += dy * this.speed;
+
+      // Out of bounds
+      if (this.x < -20 || this.x > canvas.width + 20 || this.y < -20 || this.y > canvas.height + 20) {
+        this.explode();
+        return;
+      }
+
+      // Hit walls or enemies
+      const cx = this.x + this.size / 2;
+      const cy = this.y + this.size / 2;
+      const tx = Math.floor(cx / TILE_SIZE);
+      const ty = Math.floor(cy / TILE_SIZE);
+
+      if (tx >= 0 && tx < COLS && ty >= 0 && ty < ROWS) {
+        const tile = map[ty][tx];
+        if (tile === BRICK || tile === STEEL || tile === BASE) {
+          this.explode();
+          return;
+        }
+      }
+
+      // Hit enemy
+      for (const enemy of enemies) {
+        if (enemy.alive) {
+          const eb = enemy.getBounds();
+          const bb = { left: this.x, top: this.y, right: this.x + this.size, bottom: this.y + this.size };
+          if (!(bb.right <= eb.left || bb.left >= eb.right ||
+                bb.bottom <= eb.top || bb.top >= eb.bottom)) {
+            this.explode();
+            return;
+          }
+        }
+      }
+    }
+
+    explode() {
+      this.alive = false;
+      const cx = this.x + this.size / 2;
+      const cy = this.y + this.size / 2;
+      const radius = 3; // tiles
+
+      // Destroy bricks in blast radius
+      for (let r = Math.floor((cy - radius * TILE_SIZE) / TILE_SIZE); r <= Math.floor((cy + radius * TILE_SIZE) / TILE_SIZE); r++) {
+        for (let c = Math.floor((cx - radius * TILE_SIZE) / TILE_SIZE); c <= Math.floor((cx + radius * TILE_SIZE) / TILE_SIZE); c++) {
+          if (r >= 0 && r < ROWS && c >= 0 && c < COLS) {
+            const dist = Math.sqrt((c * TILE_SIZE + TILE_SIZE / 2 - cx) ** 2 + (r * TILE_SIZE + TILE_SIZE / 2 - cy) ** 2);
+            if (dist <= radius * TILE_SIZE) {
+              if (map[r][c] === BRICK) {
+                map[r][c] = EMPTY;
+                spawnParticles(c * TILE_SIZE + TILE_SIZE / 2, r * TILE_SIZE + TILE_SIZE / 2, '#f80', 3);
+              } else if (map[r][c] === BASE) {
+                map[r][c] = EMPTY;
+                baseAlive = false;
+              }
+            }
+          }
+        }
+      }
+
+      // Damage enemies in blast
+      for (const enemy of enemies) {
+        if (enemy.alive) {
+          const ecx = enemy.getCenter().x;
+          const ecy = enemy.getCenter().y;
+          const dist = Math.sqrt((ecx - cx) ** 2 + (ecy - cy) ** 2);
+          if (dist <= radius * TILE_SIZE) {
+            const killed = enemy.hit();
+            if (killed) {
+              spawnParticles(ecx, ecy, '#f44', 10);
+              score += 100;
+            }
+          }
+        }
+      }
+
+      // Big explosion particles
+      spawnParticles(cx, cy, '#f80', 18);
+      spawnParticles(cx, cy, '#ff0', 12);
+    }
+
+    draw(ctx) {
+      if (!this.alive) return;
+      const cx = this.x + this.size / 2;
+      const cy = this.y + this.size / 2;
+      // Glow
+      ctx.fillStyle = 'rgba(255,120,20,0.4)';
+      ctx.beginPath();
+      ctx.arc(cx, cy, this.size, 0, Math.PI * 2);
+      ctx.fill();
+      // Core
+      ctx.fillStyle = '#f80';
+      ctx.beginPath();
+      ctx.arc(cx, cy, this.size / 2, 0, Math.PI * 2);
+      ctx.fill();
+      // Inner
+      ctx.fillStyle = '#ff0';
+      ctx.beginPath();
+      ctx.arc(cx, cy, this.size / 4, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
   // --- Particle system ---
   function spawnParticles(x, y, color, count = 5) {
     // Cap total particles
@@ -646,6 +863,10 @@
     enemies = [];
     bullets = [];
     particles = [];
+    laserBeams = [];
+    cannonBalls = [];
+    laserCooldown = 0;
+    cannonCooldown = 0;
     powerUps = [];
     baseAlive = true;
     spawnQueue = [];
@@ -680,6 +901,17 @@
     document.getElementById('lives').textContent = lives;
     const aliveEnemies = enemies.filter(e => e.alive).length + spawnQueue.length;
     document.getElementById('enemies').textContent = aliveEnemies;
+    // Skill cooldowns
+    const laserEl = document.getElementById('laser-cd');
+    const cannonEl = document.getElementById('cannon-cd');
+    if (laserEl) {
+      laserEl.textContent = laserCooldown > 0 ? (laserCooldown / 1000).toFixed(1) + 's' : '就绪';
+      laserEl.style.color = laserCooldown > 0 ? '#f88' : '#0f0';
+    }
+    if (cannonEl) {
+      cannonEl.textContent = cannonCooldown > 0 ? (cannonCooldown / 1000).toFixed(1) + 's' : '就绪';
+      cannonEl.style.color = cannonCooldown > 0 ? '#f88' : '#0f0';
+    }
   }
 
   // --- Game Over ---
@@ -809,6 +1041,30 @@
         }
       }
 
+      // 🔫 激光技能 (J键) - 穿透射击
+      if (keys['KeyJ'] && laserCooldown <= 0) {
+        keys['KeyJ'] = false; // 单次触发
+        const pcx = player.getCenter().x;
+        const pcy = player.getCenter().y;
+        laserBeams.push(new LaserBeam(pcx, pcy, player.dir));
+        laserCooldown = LASER_COOLDOWN;
+      }
+
+      // 💣 大炮技能 (K键) - 范围爆炸
+      if (keys['KeyK'] && cannonCooldown <= 0) {
+        keys['KeyK'] = false; // 单次触发
+        const pcx = player.getCenter().x;
+        const pcy = player.getCenter().y;
+        const offset = player.size / 2 + 10;
+        const dirOffsets = {
+          [DIR.UP]: [0, -offset], [DIR.DOWN]: [0, offset],
+          [DIR.LEFT]: [-offset, 0], [DIR.RIGHT]: [offset, 0]
+        };
+        const [ox, oy] = dirOffsets[player.dir];
+        cannonBalls.push(new CannonBall(pcx + ox - 4, pcy + oy - 4, player.dir));
+        cannonCooldown = CANNON_COOLDOWN;
+      }
+
       player.update();
     }
 
@@ -875,6 +1131,18 @@
     }
     // THEN clean dead particles (so no negative-life particle reaches draw)
     particles = particles.filter(p => p.life > 0);
+
+    // Update skill cooldowns
+    if (laserCooldown > 0) laserCooldown -= dt;
+    if (cannonCooldown > 0) cannonCooldown -= dt;
+
+    // Update laser beams
+    for (const beam of laserBeams) beam.update();
+    laserBeams = laserBeams.filter(b => b.alive);
+
+    // Update cannon balls
+    for (const ball of cannonBalls) ball.update();
+    cannonBalls = cannonBalls.filter(b => b.alive);
 
     // Check win
     checkWinCondition();
@@ -984,6 +1252,16 @@
     // Draw bullets
     for (const bullet of bullets) {
       bullet.draw(ctx);
+    }
+
+    // Draw laser beams
+    for (const beam of laserBeams) {
+      beam.draw(ctx);
+    }
+
+    // Draw cannon balls
+    for (const ball of cannonBalls) {
+      ball.draw(ctx);
     }
 
     // Paused overlay
